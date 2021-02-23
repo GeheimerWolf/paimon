@@ -1,42 +1,74 @@
 import { Command } from "../types/commands.ts";
 import { Embed } from "./Embed.ts";
 import {
-  addReactions,
   botCache,
-  cache,
   Collection,
   deleteMessageByID,
   editMessage,
   Message,
   MessageContent,
-  removeUserReaction,
   sendMessage,
 } from "../../deps.ts";
 import { Milliseconds } from "./constants/time.ts";
-import { needMessage, needReaction } from "./collectors.ts";
 
 /** This function should be used when you want to convert milliseconds to a human readable format like 1d5h. */
 export function humanizeMilliseconds(milliseconds: number) {
-  // Gets ms into seconds
-  const time = milliseconds / 1000;
-  if (time < 1) return "1s";
+  const years = Math.floor(milliseconds / botCache.constants.milliseconds.YEAR);
+  const months = Math.floor(
+    (milliseconds % botCache.constants.milliseconds.YEAR) /
+      botCache.constants.milliseconds.MONTH,
+  );
+  const weeks = Math.floor(
+    ((milliseconds % botCache.constants.milliseconds.YEAR) %
+      botCache.constants.milliseconds.MONTH) /
+      botCache.constants.milliseconds.WEEK,
+  );
+  const days = Math.floor(
+    (((milliseconds % botCache.constants.milliseconds.YEAR) %
+      botCache.constants.milliseconds.MONTH) %
+      botCache.constants.milliseconds.WEEK) /
+      botCache.constants.milliseconds.DAY,
+  );
+  const hours = Math.floor(
+    ((((milliseconds % botCache.constants.milliseconds.YEAR) %
+      botCache.constants.milliseconds.MONTH) %
+      botCache.constants.milliseconds.WEEK) %
+      botCache.constants.milliseconds.DAY) /
+      botCache.constants.milliseconds.HOUR,
+  );
+  const minutes = Math.floor(
+    (((((milliseconds % botCache.constants.milliseconds.YEAR) %
+      botCache.constants.milliseconds.MONTH) %
+      botCache.constants.milliseconds.WEEK) %
+      botCache.constants.milliseconds.DAY) %
+      botCache.constants.milliseconds.HOUR) /
+      botCache.constants.milliseconds.MINUTE,
+  );
+  const seconds = Math.floor(
+    (((((milliseconds % botCache.constants.milliseconds.YEAR) %
+          botCache.constants.milliseconds.MONTH) %
+          botCache.constants.milliseconds.WEEK) %
+          botCache.constants.milliseconds.DAY) %
+          botCache.constants.milliseconds.HOUR) %
+        botCache.constants.milliseconds.MINUTE / 1000,
+  );
 
-  const days = Math.floor(time / 86400);
-  const hours = Math.floor((time % 86400) / 3600);
-  const minutes = Math.floor(((time % 86400) % 3600) / 60);
-  const seconds = Math.floor(((time % 86400) % 3600) % 60);
-
+  const yearString = years ? `${years}y ` : "";
+  const monthString = months ? `${months}mo ` : "";
+  const weekString = weeks ? `${weeks}w ` : "";
   const dayString = days ? `${days}d ` : "";
   const hourString = hours ? `${hours}h ` : "";
   const minuteString = minutes ? `${minutes}m ` : "";
   const secondString = seconds ? `${seconds}s ` : "";
 
-  return `${dayString}${hourString}${minuteString}${secondString}`;
+  return `${yearString}${monthString}${weekString}${dayString}${hourString}${minuteString}${secondString}`
+    .trimEnd() ||
+    "1s";
 }
 
 /** This function helps convert a string like 1d5h to milliseconds. */
 export function stringToMilliseconds(text: string) {
-  const matches = text.match(/(\d+[w|d|h|m|s]{1})/g);
+  const matches = text.match(/(\d+[w|d|h|m]{1})/g);
   if (!matches) return;
 
   let total = 0;
@@ -52,19 +84,19 @@ export function stringToMilliseconds(text: string) {
     const [letter] = validMatch;
     if (!number || !letter) return;
 
-    let multiplier = Milliseconds.SECOND;
+    let multiplier = botCache.constants.milliseconds.SECOND;
     switch (letter.toLowerCase()) {
       case `w`:
-        multiplier = Milliseconds.WEEK;
+        multiplier = botCache.constants.milliseconds.WEEK;
         break;
       case `d`:
-        multiplier = Milliseconds.DAY;
+        multiplier = botCache.constants.milliseconds.DAY;
         break;
       case `h`:
-        multiplier = Milliseconds.HOUR;
+        multiplier = botCache.constants.milliseconds.HOUR;
         break;
       case `m`:
-        multiplier = Milliseconds.MINUTE;
+        multiplier = botCache.constants.milliseconds.MINUTE;
         break;
     }
 
@@ -137,13 +169,11 @@ export function editEmbed(message: Message, embed: Embed, content?: string) {
 // Very important to make sure files are reloaded properly
 let uniqueFilePathCounter = 0;
 let paths: string[] = [];
-
 /** This function allows reading all files in a folder. Useful for loading/reloading commands, monitors etc */
 export async function importDirectory(path: string) {
   const files = Deno.readDirSync(Deno.realPathSync(path));
   const folder = path.substring(path.indexOf("/src/") + 5);
-
-  if (!folder.includes("/")) console.log(`Loading ${folder}...`);
+  if (!folder.includes("/")) console.log(`[Import] Loading ${folder}...`);
 
   for (const file of files) {
     if (!file.name) continue;
@@ -152,16 +182,9 @@ export async function importDirectory(path: string) {
     if (file.isFile) {
       if (!currentPath.endsWith(".ts")) continue;
       paths.push(
-        `import "${
-          Deno.mainModule.substring(
-            0,
-            Deno.mainModule.lastIndexOf("/"),
-          )
-        }/${
-          currentPath.substring(
-            currentPath.indexOf("src/"),
-          )
-        }#${uniqueFilePathCounter}";`,
+        `import "${Deno.mainModule.substring(0, Deno.mainModule.lastIndexOf("/"))}/${currentPath.substring(
+          currentPath.indexOf("src/")
+        )}#${uniqueFilePathCounter}";`
       );
       continue;
     }
@@ -172,19 +195,11 @@ export async function importDirectory(path: string) {
   uniqueFilePathCounter++;
 }
 
-/** Imports all everything in fileloader.ts */
+/** Imports everything using fileloader.ts */
 export async function fileLoader() {
-  await Deno.writeTextFile(
-    "fileloader.ts",
-    paths.join("\n").replaceAll("\\", "/"),
-  );
+  await Deno.writeTextFile("fileloader.ts", paths.join("\n").replaceAll("\\", "/"));
   await import(
-    `${
-      Deno.mainModule.substring(
-        0,
-        Deno.mainModule.lastIndexOf("/"),
-      )
-    }/fileloader.ts#${uniqueFilePathCounter}`
+    `${Deno.mainModule.substring(0, Deno.mainModule.lastIndexOf("/"))}/fileloader.ts#${uniqueFilePathCounter}`
   );
   paths = [];
 }
@@ -204,130 +219,4 @@ export function getTime() {
   return `${hour >= 10 ? hour : `0${hour}`}:${
     minute >= 10 ? minute : `0${minute}`
   } ${amOrPm}`;
-}
-
-export function getCurrentLanguage(guildID: string) {
-  return botCache.guildLanguages.get(guildID) ||
-    cache.guilds.get(guildID)?.preferredLocale || "en_US";
-}
-
-/** This function allows to create a pagination using embeds and reactions Requires GUILD_MESSAGE_REACTIONS intent **/
-export async function createEmbedsPagination(
-  channelID: string,
-  authorID: string,
-  embeds: Embed[],
-  defaultPage = 1,
-  reactionTimeout = Milliseconds.SECOND * 30,
-  reactions: {
-    [emoji: string]: (
-      setPage: (newPage: number) => void,
-      currentPage: number,
-      pageCount: number,
-      deletePagination: () => void,
-    ) => Promise<void>;
-  } = {
-    // deno-lint-ignore require-await
-    "◀️": async (setPage, currentPage) => setPage(Math.max(currentPage - 1, 1)),
-    "↗️": async (setPage) => {
-      const question = await sendMessage(
-        channelID,
-        "To what page would you like to jump? Say `cancel` or `0` to cancel the prompt.",
-      );
-      const answer = await needMessage(authorID, channelID);
-
-      if (question) {
-        await deleteMessageByID(question.channelID, question.id);
-      }
-
-      const newPageNumber = parseInt(answer.content);
-
-      if (answer) {
-        await deleteMessageByID(answer.channelID, answer.id);
-      }
-
-      if (isNaN(newPageNumber)) {
-        await sendMessage(channelID, "This is not a valid number!");
-        return;
-      }
-
-      if (newPageNumber < 1 || newPageNumber > embeds.length) {
-        await sendMessage(channelID, `This is not a valid page!`);
-        return;
-      }
-
-      setPage(newPageNumber);
-    },
-    // deno-lint-ignore require-await
-    "▶️": async (setPage, currentPage, pageCount) =>
-      setPage(Math.min(currentPage + 1, pageCount)),
-    // deno-lint-ignore require-await
-    "🗑️": async (setPage, currentPage, pageCount, deletePagination) =>
-      deletePagination(),
-  },
-) {
-  if (embeds.length === 0) {
-    return;
-  }
-
-  let currentPage = defaultPage;
-  const embedMessage = await sendEmbed(channelID, embeds[currentPage - 1]);
-
-  if (!embedMessage) {
-    return;
-  }
-
-  if (embeds.length <= 1) {
-    return;
-  }
-
-  await addReactions(
-    embedMessage.channelID,
-    embedMessage.id,
-    Object.keys(reactions),
-    true,
-  );
-
-  let isEnded = false;
-
-  while (!isEnded) {
-    if (!embedMessage) {
-      return;
-    }
-    const reaction = await needReaction(authorID, embedMessage.id, {
-      duration: reactionTimeout,
-    });
-    if (!reaction) {
-      return;
-    }
-
-    if (embedMessage.guildID) {
-      await removeUserReaction(
-        embedMessage.channelID,
-        embedMessage.id,
-        reaction,
-        authorID,
-      );
-    }
-
-    if (reactions[reaction]) {
-      await reactions[reaction](
-        (newPage) => {
-          currentPage = newPage;
-        },
-        currentPage,
-        embeds.length,
-        () => {
-          isEnded = true;
-          deleteMessageByID(embedMessage.channelID, embedMessage.id);
-        },
-      );
-    }
-
-    if (
-      isEnded || !embedMessage ||
-      !(await editEmbed(embedMessage, embeds[currentPage - 1]))
-    ) {
-      return;
-    }
-  }
 }
